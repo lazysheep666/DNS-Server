@@ -1,4 +1,4 @@
-## An assignment in Intemet Application course.
+## An assignment in Intenet Application course.
 
 ### Requirment:
 
