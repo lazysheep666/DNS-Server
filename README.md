@@ -1,4 +1,4 @@
-## An assignment in Intenet Application course.
+## An assignment in Internet Application course.
 
 ### Requirment:
 
