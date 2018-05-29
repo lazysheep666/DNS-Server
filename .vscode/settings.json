@@ -10,6 +10,8 @@
     "ratio": "c",
     "tuple": "c",
     "type_traits": "c",
-    "utility": "c"
+    "utility": "c",
+    "__locale": "c",
+    "inet.h": "c"
   }
 }
