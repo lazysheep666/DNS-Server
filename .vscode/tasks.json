@@ -1,0 +1,9 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "0.1.0",
+  "command": "clang", //使用clang编译C文件，如果你使用C++开发，改成clang++
+  "isShellCommand": true,
+  "args": ["client.c", "-g"],//如果使用的是C++，则改成main.cpp或者相对应的cpp入口文件。如果需要支持C++11，添加"-std=c++11"
+  "showOutput": "always"
+}

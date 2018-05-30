@@ -71,12 +71,15 @@ struct packet {
 /**
  * method
  */
+void strreverse(char* begin, char* end);
+void itoa(int value, char* str, int base);
 int getType(char *type);
 void put16bits(char** buffer, unsigned short value);
 size_t get16bits(const char** buffer);
 void put32bits(char** buffer, unsigned short value);
 size_t get32bits(const char** buffer);
 void encode_header(struct dnsHeader* hd, char** buffer);
+void encode_domain_name(char** buff, char* domain);
 void encode_resource_records(struct dnsRR* rr, char** buffer);
 void encode_packet(struct packet* packet, char** buffer);
 /**
@@ -133,11 +136,35 @@ int main(int argc, char *argv[])
   memset(send_buf, '\0', BUF_SIZE);
   buf = send_buf;
   encode_packet(&qPacket, &send_buf);
-  if (send(sockfd, "213", 100, 0) == -1) {
+  buf = buf + 12;
+  printf("%s", buf);
+  if (send(sockfd, buf, BUF_SIZE, 0) == -1) {
     printf("Something wrong with socket sending packet\n");
     exit(0); 
   }
   return 0;
+}
+void strreverse(char* begin, char* end) {
+	char aux;
+	while(end>begin)
+		aux=*end, *end--=*begin, *begin++=aux;
+}
+	
+void itoa(int value, char* str, int base) {
+	
+	static char num[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+	char* wstr=str;
+	int sign;
+	// Validate base
+	if (base<2 || base>35){ *wstr='\0'; return; }
+	// Take care of sign	
+	if ((sign=value) < 0) value = -value;
+	// Conversion. Number is reversed.
+	do *wstr++ = num[value%base]; while(value/=base);
+	if(sign<0) *wstr++='-';
+	*wstr='\0';
+	// Reverse string
+	strreverse(str,wstr-1);
 }
 // memory operation
 void put16bits(char** buffer, unsigned short value) {
@@ -174,36 +201,21 @@ void encode_header(struct dnsHeader* hd, char** buffer) {
 }
 
 // www.baidu.com => 3www5baidu3com0
-void encode_domain_name(char** buffer, const char* domain) {
-  char* buf = *buffer;
-  const char* beg = domain;
-  const char* pos;
-  int len = 0;
-  int i = 0;
-
-  while ((pos = strchr(beg, '.')))
-  {
-    len = pos - beg;
-    buf[i] = len;
-    i += 1;
-    memcpy(buf+i, beg, len);
-    i += len;
-
-    beg = pos + 1;
-  }
-
-  len = strlen(domain) - (beg - domain);
-
-  buf[i] = len;
-  i += 1;
-
-  memcpy(buf + i, beg, len);
-  i += len;
-
-  buf[i] = 0;
-  i += 1;
-
-  *buffer += i;
+void encode_domain_name(char** buffer, char* domain) {
+  int j = -1;
+  do {
+    j++;
+    if (domain[j] == '.' || domain[j] == '\0') {
+      itoa(j / 3, *buffer, 10);
+      *buffer += 1;
+      memcpy(*buffer, domain, j);
+      *buffer += j;
+      domain = domain + j + 1;
+      j = -1;
+    }
+  } while (domain[j] != '\0');
+  itoa(0, *buffer, 10);
+  *buffer += 1;
 }
 /* @return 0 upon failure, 1 upon success */
 void encode_resource_records(struct dnsRR* rr, char** buffer) {
