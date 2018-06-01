@@ -12,6 +12,19 @@
     "type_traits": "c",
     "utility": "c",
     "__locale": "c",
-    "inet.h": "c"
+    "inet.h": "c",
+    "__string": "c",
+    "string": "c",
+    "string_view": "c",
+    "unistd.h": "c",
+    "stdio.h": "c",
+    "__bit_reference": "c",
+    "algorithm": "c",
+    "atomic": "c",
+    "bitset": "c",
+    "iterator": "c",
+    "locale": "c",
+    "system_error": "c",
+    "initializer_list": "c"
   }
 }
