@@ -74,10 +74,11 @@ struct packet {
  */
 void strreverse(char* begin, char* end);
 void itoa(int value, char* str, int base);
-int getType(char *type);
-void put16bits(char** buffer, unsigned short value, char* key);
+unsigned short getType(char *type);
+void printPacket(struct packet packet);
+void put16bits(char** buffer, unsigned short value);
 unsigned short get16bits(char** buffer);
-void put32bits(char** buffer, unsigned short value, char* key);
+void put32bits(char** buffer, unsigned int value);
 unsigned int get32bits(char** buffer);
 void encode_header(struct dnsHeader* hd, char** buffer);
 void encode_domain_name(char** buff, char* domain);
@@ -85,7 +86,11 @@ void encode_resource_records(struct dnsRR* rr, char** buffer);
 void encode_packet(struct packet* packet, char** buffer);
 void decode_header(struct dnsHeader* hd, char** buffer);
 char* decode_domain_name(char** buffer);
+void decode_resource_records(struct dnsRR* rr, char** buffer);
 void decode_packet(struct packet* packet, char** buffer);
+void getRR (struct dnsRR *head, char* fpath);
+void addRR(struct dnsRR *head, char* fpath);
+struct dnsRR* findRR(char* qName, unsigned short qType, struct dnsRR* head);
 /**
  * main
  */ 
@@ -129,8 +134,48 @@ int main(int argc, char *argv[]) {
     qPacket.querySection = (struct dnsQuery*)malloc(sizeof(struct dnsQuery));
     memset(qPacket.querySection, 0, sizeof(struct dnsQuery));
     buf += 2;
+    qPacket.answerSection = NULL;
+    qPacket.authoritySection = NULL;
+    qPacket.additionalSection = NULL;
     decode_packet(&qPacket, &buf);
-    printf("%s\n", qPacket.querySection->qName);
+
+    struct dnsRR* head = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    //get the resource record from cache
+    getRR(head, "./cache");
+
+    struct packet aPacket;
+    //header
+    aPacket.header = (struct dnsHeader*)malloc(sizeof(struct dnsHeader));
+    memset(aPacket.header, 0, sizeof(struct dnsHeader));
+    aPacket.header = qPacket.header;
+    aPacket.header->answerNum = 1;
+    aPacket.header->tag = standard_res_NAA_NRA;
+    //query section
+    aPacket.querySection = (struct dnsQuery*)malloc(sizeof(struct dnsQuery));
+    memset(aPacket.querySection, 0, sizeof(struct dnsQuery));
+    aPacket.querySection = qPacket.querySection;
+    //answer section
+    aPacket.answerSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    memset(aPacket.answerSection, 0, sizeof(struct dnsRR));
+    aPacket.answerSection = findRR(qPacket.querySection->qName, qPacket.querySection->qType, head);
+    //authority section
+    aPacket.authoritySection = NULL;
+    //addtional section 
+    aPacket.additionalSection = NULL;
+    //send answer packet
+    char* temp_buf = (char*) malloc(sizeof(char) * BUF_SIZE);
+    memset(temp_buf, '\0', BUF_SIZE);
+    char* send_buf = temp_buf;
+    temp_buf += 2;
+    encode_packet(&aPacket, &temp_buf);
+    printf("packet length: %d\n", length);
+    printPacket(aPacket);
+    length = htons(length);
+    memcpy(send_buf, &length, sizeof(length));
+    if (send(client_fd, send_buf, BUF_SIZE, 0) == -1) {
+      printf("Something wrong with socket sending packet\n");
+      exit(1); 
+    }
   }
   return 0;
 }
@@ -158,8 +203,7 @@ void itoa(int value, char* str, int base) {
 	strreverse(str,wstr-1);
 }
 // memory operation
-void put16bits(char** buffer, unsigned short value, char* key) {
-  printf("%s : %d\n", key, value);
+void put16bits(char** buffer, unsigned short value) {
   value = htons(value);
   memcpy(*buffer, &value, 2);
   *buffer += 2;
@@ -171,9 +215,8 @@ unsigned short get16bits(char** buffer) {
   *buffer += 2;
   return ntohs(value);
 }
-void put32bits(char** buffer, unsigned short value, char* key) {
-  printf("%s : %d\n", key, value);
-  value = htons(value);
+void put32bits(char** buffer, unsigned int value) {
+  value = htonl(value);
   memcpy(*buffer, &value, 4);
   *buffer += 4;
   length += 4;
@@ -187,17 +230,16 @@ unsigned int get32bits(char** buffer) {
 
 //encode header
 void encode_header(struct dnsHeader* hd, char** buffer) {
-  put16bits(buffer, hd->id, "id");
-  put16bits(buffer, hd->tag, "tag");
-  put16bits(buffer, hd->queryNum,"query number");
-  put16bits(buffer, hd->answerNum, "anser number");
-  put16bits(buffer, hd->authorNum, "authoritive number");
-  put16bits(buffer, hd->addNum, "addtional number");
+  put16bits(buffer, hd->id);
+  put16bits(buffer, hd->tag);
+  put16bits(buffer, hd->queryNum);
+  put16bits(buffer, hd->answerNum);
+  put16bits(buffer, hd->authorNum);
+  put16bits(buffer, hd->addNum);
 }
 
 // www.baidu.com => 3www5baidu3com0
 void encode_domain_name(char** buffer, char* domain) {
-  char* temp = *buffer;
   int j = -1;
   do {
     j++;
@@ -215,36 +257,30 @@ void encode_domain_name(char** buffer, char* domain) {
   itoa(0, *buffer, 10);
   *buffer += 1;
   length += 1;
-  printf("domian name: %s\n", temp);
 }
 /* @return 0 upon failure, 1 upon success */
 void encode_resource_records(struct dnsRR* rr, char** buffer) {
   if (rr) {
     encode_domain_name(buffer, rr->dname);
-    put16bits(buffer, rr->type, "resource type");
-    put16bits(buffer, rr->_class, "resource class ");
-    put32bits(buffer, rr->ttl, "resource ttl");
-    put16bits(buffer, rr->rDataLen, "resource lenght");
-    memcpy(*buffer, rr->rData, strlen(rr->rData));
+    put16bits(buffer, rr->type);
+    put16bits(buffer, rr->_class);
+    put32bits(buffer, rr->ttl);
+    put16bits(buffer, rr->rDataLen);
+    memcpy(*buffer, rr->rData, rr->rDataLen);
+    length += rr->rDataLen;
     *buffer += rr->rDataLen;
   }
 }
 
 //endcode packet
 void encode_packet(struct packet* packet, char** buffer) {
-  printf("Header:\n");
   encode_header(packet->header, buffer);
-  printf("Query Section:\n");
   encode_domain_name(buffer, packet->querySection->qName);
-  put16bits(buffer, packet->querySection->qType, "query type");
-  put16bits(buffer, packet->querySection->qClass, "query class");
-  printf("Answer Section:\n");
+  put16bits(buffer, packet->querySection->qType);
+  put16bits(buffer, packet->querySection->qClass);
   encode_resource_records(packet->answerSection, buffer);
-  printf("Autority Section:\n");
   encode_resource_records(packet->authoritySection, buffer);
-  printf("Addtional Section:\n");
   encode_resource_records(packet->additionalSection, buffer);
-  printf("End\n");
 }
 
 void decode_header(struct dnsHeader* hd, char** buffer) {
@@ -269,9 +305,20 @@ char* decode_domain_name(char** buffer) {
     *pareseDomain = '.';
     pareseDomain += 1;
   }
+  *buffer += 1;
   pareseDomain -= 1;
   *pareseDomain = '\0';
   return temp;
+}
+
+void decode_resource_records(struct dnsRR* rr, char** buffer) {
+  rr->dname = decode_domain_name(buffer);
+  rr->type = get16bits(buffer);
+  rr->_class = get16bits(buffer);
+  rr->ttl = get32bits(buffer);
+  rr->rDataLen = get16bits(buffer);
+  memcpy(rr->rData, *buffer, rr->rDataLen);
+  *buffer += rr->rDataLen;
 }
 
 void decode_packet(struct packet* packet, char** buffer) {
@@ -279,24 +326,159 @@ void decode_packet(struct packet* packet, char** buffer) {
   packet->querySection->qName = decode_domain_name(buffer);
   packet->querySection->qType = get16bits(buffer);
   packet->querySection->qClass = get16bits(buffer);
+  if (packet->header->answerNum != 0) {
+    decode_resource_records(packet->answerSection, buffer);
+  }
+  if (packet->header->authorNum != 0) {
+    decode_resource_records(packet->authoritySection, buffer);
+  }
+  if (packet->header->addNum != 0) {
+    decode_resource_records(packet->additionalSection, buffer);
+  }
 }
 
 //get the query type
-int getType(char *type) {
+unsigned short getType(char *type) {
   enum RR_type type_code;
-  if (strcmp(type, "A") == 0) {
+  if (!strcmp(type, "A")) {
     type_code = A;
     return type_code;
   } 
-  else if (strcmp(type, "MX"))
+  else if (!strcmp(type, "MX"))
   {
     type_code = MX;
     return type_code;
-  } else if (strcmp(type, "CNAME")) {
+  } else if (!strcmp(type, "CNAME")) {
     type_code = CNAME;
     return type_code;
   } else {
     printf("No such query type, [A | MX | CNAME] is considered\n");
     exit(0);
   }
+}
+// get resource record from txt
+void getRR (struct dnsRR *head, char* fpath) {
+  char* buf = (char *)malloc(sizeof(char) * BUF_SIZE);
+  memset(buf, 0, BUF_SIZE); 
+  FILE * fp = fopen(fpath, "r");
+  struct dnsRR *p = head;
+  if (fp == NULL) {
+    printf("can not read the resource record");
+    exit(0);
+  }
+  while (fgets(buf, BUFSIZ, fp) != NULL) {
+    int len = strlen(buf);
+    buf[len-1] = '\0';
+    len = strlen(buf);
+    struct dnsRR *q = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    q->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
+    q->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(q->dname, 0, BUF_SIZE);
+    memset(q->rData, 0, BUF_SIZE);
+    for (int i = 0; i < len; i++) {
+      if (buf[i] == ' ') {
+        memcpy(q->dname, buf, i);
+        buf = buf + i + 1;
+        break;
+      }
+    }
+    len = strlen(buf);
+    char temp_type[BUF_SIZE];
+    for (int i = 0; i < len; i++) {
+      if (buf[i] == ' ') {
+        q->type = getType(temp_type);
+        buf += i + 1;
+        break;
+      }
+      temp_type[i] = buf[i];
+    }
+    len = strlen(buf);
+    memcpy(q->rData, buf, len);
+    q->rDataLen = strlen(q->rData);
+    q->_class = 0x1;
+    
+    q->ttl = 100;
+    q->next = NULL;
+    p->next = q;
+    p = p->next;
+  }
+  fclose(fp);
+}
+// add resource record to txt
+void addRR (struct dnsRR *rr, char* fpath) {
+  FILE * fp = fopen(fpath, "a");
+  if (fp == NULL) {
+    printf("can not add the resource record to cache");
+    exit(0);
+  }
+  fwrite(rr->dname, strlen(rr->dname), 1, fp);
+  fwrite(" ", 1, 1, fp);
+  char *type;
+  if (rr->type == 1) {
+    type = "A";
+  } else if (rr->type == 5) {
+    type = "CNAME";
+  } else {
+    type = "MX";
+  }
+  fwrite(type, strlen(type), 1, fp);
+  fwrite(" ", 1, 1, fp);
+  fwrite(rr->rData, rr->rDataLen, 1, fp);
+  fwrite("\n", 1, 1, fp);
+  fclose(fp);
+}
+//find resource record
+struct dnsRR* findRR(char* qName, unsigned short qType, struct dnsRR* head) {
+  struct dnsRR* q = head ->next;
+  while (q != NULL) {
+    if(q->type == qType && !strcmp(qName, q->dname)) {
+      printf("find in the cache\n");
+      return q;
+    }
+    q = q->next;
+  }
+  return q;
+}
+
+//print packet
+void printPacket(struct packet packet) {
+  printf("Header:\n");
+  printf("id: %d\n", packet.header->id);
+  printf("tag: %d\n", packet.header->tag);
+  printf("query number: %d\n", packet.header->queryNum);
+  printf("answer number: %d\n", packet.header->answerNum);
+  printf("authority number: %d\n", packet.header->authorNum);
+  printf("additional number: %d\n", packet.header->addNum);
+  printf("Query Section:\n");
+  printf("query name : %s\n", packet.querySection->qName);
+  printf("query type : %d\n", packet.querySection->qType);
+  printf("query class : %d\n", packet.querySection->qClass);
+  printf("Answer Section:\n");
+  if (packet.header->answerNum != 0) {
+    printf("name: %s\n", packet.answerSection->dname);
+    printf("type: %d\n", packet.answerSection->type);
+    printf("class: %d\n", packet.answerSection->_class);
+    printf("time to left: %d\n", packet.answerSection->ttl);
+    printf("data length: %d\n", packet.answerSection->rDataLen);
+    printf("data: %s\n", packet.answerSection->rData);
+  }
+  printf("Autority Section:\n");
+  if (packet.header->authorNum != 0) {
+    printf("name: %s\n", packet.authoritySection->dname);
+    printf("type: %d\n", packet.authoritySection->type);
+    printf("class: %d\n", packet.authoritySection->_class);
+    printf("time to left: %d\n", packet.authoritySection->ttl);
+    printf("data length: %d\n", packet.authoritySection->rDataLen);
+    printf("data: %s\n", packet.answerSection->rData);
+  }
+  printf("Addtional Section:\n");
+  if (packet.header->addNum != 0) {
+    printf("name: %s\n", packet.additionalSection->dname);
+    printf("type: %d\n", packet.additionalSection->type);
+    printf("class: %d\n", packet.additionalSection->_class);
+    printf("time to left: %d\n", packet.additionalSection->ttl);
+    printf("data length: %d\n", packet.additionalSection->rDataLen);
+    printf("data: %s\n", packet.additionalSection->rData);
+  }
+  printf("End\n");
 }

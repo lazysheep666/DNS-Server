@@ -73,15 +73,20 @@ struct packet {
  */
 void strreverse(char* begin, char* end);
 void itoa(int value, char* str, int base);
-int getType(char *type);
-void put16bits(char** buffer, unsigned short value, char* key);
+void printPacket(struct packet packet);
+unsigned short getType(char *type);
+void put16bits(char** buffer, unsigned short value);
 unsigned short get16bits(char** buffer);
-void put32bits(char** buffer, unsigned short value, char* key);
+void put32bits(char** buffer, unsigned int value);
 unsigned int get32bits(char** buffer);
 void encode_header(struct dnsHeader* hd, char** buffer);
 void encode_domain_name(char** buff, char* domain);
 void encode_resource_records(struct dnsRR* rr, char** buffer);
 void encode_packet(struct packet* packet, char** buffer);
+void decode_header(struct dnsHeader* hd, char** buffer);
+char* decode_domain_name(char** buffer);
+void decode_resource_records(struct dnsRR* rr, char** buffer);
+void decode_packet(struct packet* packet, char** buffer);
 /**
  * main
  */ 
@@ -92,25 +97,11 @@ int main(int argc, char *argv[])
   struct sockaddr_in localServAddr;
   struct packet qPacket;
   char* send_buf;
+  char* rec_buf;
   char* buf;
   char* serverIP = "127.0.0.1";
   if (argc < 2 || argc > 3) { 
     printf("Usage: ./client domain_name type\n"); 
-    exit(1); 
-  }
-  if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){ 
-    printf("Something wrong with socket creation\n"); 
-    exit(1); 
-  }
-  localServAddr.sin_family = AF_INET;
-  // Convert host sequence to network sequence.
-  localServAddr.sin_port=htons(SERVER_PORT);
-  localServAddr.sin_addr.s_addr = inet_addr(serverIP);
-  // establish connection
-  if (connect(sockfd, 
-  (struct sockaddr*)&localServAddr,  
-  sizeof(struct sockaddr)) == -1) { 
-    printf("Something wrong with socket connecting\n");
     exit(1); 
   }
   // construct query packet
@@ -131,6 +122,22 @@ int main(int argc, char *argv[])
   qPacket.answerSection = NULL;
   qPacket.authoritySection = NULL;
   qPacket.additionalSection = NULL;
+
+  if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){ 
+    printf("Something wrong with socket creation\n"); 
+    exit(1); 
+  }
+  localServAddr.sin_family = AF_INET;
+  // Convert host sequence to network sequence.
+  localServAddr.sin_port=htons(SERVER_PORT);
+  localServAddr.sin_addr.s_addr = inet_addr(serverIP);
+  // establish connection
+  if (connect(sockfd, 
+  (struct sockaddr*)&localServAddr,  
+  sizeof(struct sockaddr)) == -1) { 
+    printf("Something wrong with socket connecting\n");
+    exit(1); 
+  }
   // send query packet
   send_buf = (char*) malloc(sizeof(char) * BUF_SIZE);
   memset(send_buf, '\0', BUF_SIZE);
@@ -142,10 +149,43 @@ int main(int argc, char *argv[])
   memcpy(buf, &length, sizeof(length));
   if (send(sockfd, buf, BUF_SIZE, 0) == -1) {
     printf("Something wrong with socket sending packet\n");
-    exit(0); 
+    exit(1); 
   }
+  printPacket(qPacket);
+  //receive anser packet
+  int nbytes;
+  rec_buf = (char *)malloc(sizeof(char) * BUF_SIZE);
+  if ((nbytes = recv(sockfd, rec_buf, BUF_SIZE, 0)) == -1) {
+      printf("Something wrong with socket receving\n");
+    }
+    struct packet aPacket;
+    aPacket.header = (struct dnsHeader*)malloc(sizeof(struct dnsHeader));
+    memset(aPacket.header, 0, sizeof(struct dnsHeader));
+    aPacket.querySection = (struct dnsQuery*)malloc(sizeof(struct dnsQuery));
+    memset(aPacket.querySection, 0, sizeof(struct dnsQuery));
+
+    aPacket.answerSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    memset(aPacket.answerSection, 0, sizeof(struct dnsRR));
+    aPacket.answerSection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket.answerSection->rData, 0, BUF_SIZE);
+
+    aPacket.authoritySection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    memset(aPacket.authoritySection, 0, sizeof(struct dnsRR));
+
+    aPacket.additionalSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    memset(aPacket.additionalSection, 0, sizeof(struct dnsRR));
+
+    rec_buf += 2;
+    // unsigned int h = get32bits(&rec_buf);
+    // printf("%d", h);
+    decode_packet(&aPacket, &rec_buf);
+    printPacket(aPacket);
   return 0;
 }
+
+/**
+ * function
+ */
 void strreverse(char* begin, char* end) {
 	char aux;
 	while(end>begin)
@@ -169,8 +209,7 @@ void itoa(int value, char* str, int base) {
 	strreverse(str,wstr-1);
 }
 // memory operation
-void put16bits(char** buffer, unsigned short value, char* key) {
-  printf("%s : %d\n", key, value);
+void put16bits(char** buffer, unsigned short value) {
   value = htons(value);
   memcpy(*buffer, &value, 2);
   *buffer += 2;
@@ -182,9 +221,8 @@ unsigned short get16bits(char** buffer) {
   *buffer += 2;
   return ntohs(value);
 }
-void put32bits(char** buffer, unsigned short value, char* key) {
-  printf("%s : %d\n", key, value);
-  value = htons(value);
+void put32bits(char** buffer, unsigned int value) {
+  value = htonl(value);
   memcpy(*buffer, &value, 4);
   *buffer += 4;
   length += 4;
@@ -198,17 +236,16 @@ unsigned int get32bits(char** buffer) {
 
 //encode header
 void encode_header(struct dnsHeader* hd, char** buffer) {
-  put16bits(buffer, hd->id, "id");
-  put16bits(buffer, hd->tag, "tag");
-  put16bits(buffer, hd->queryNum,"query number");
-  put16bits(buffer, hd->answerNum, "anser number");
-  put16bits(buffer, hd->authorNum, "authoritive number");
-  put16bits(buffer, hd->addNum, "addtional number");
+  put16bits(buffer, hd->id);
+  put16bits(buffer, hd->tag);
+  put16bits(buffer, hd->queryNum);
+  put16bits(buffer, hd->answerNum);
+  put16bits(buffer, hd->authorNum);
+  put16bits(buffer, hd->addNum);
 }
 
 // www.baidu.com => 3www5baidu3com0
 void encode_domain_name(char** buffer, char* domain) {
-  char* temp = *buffer;
   int j = -1;
   do {
     j++;
@@ -226,36 +263,30 @@ void encode_domain_name(char** buffer, char* domain) {
   itoa(0, *buffer, 10);
   *buffer += 1;
   length += 1;
-  printf("domian name: %s\n", temp);
 }
 /* @return 0 upon failure, 1 upon success */
 void encode_resource_records(struct dnsRR* rr, char** buffer) {
   if (rr) {
     encode_domain_name(buffer, rr->dname);
-    put16bits(buffer, rr->type, "resource type");
-    put16bits(buffer, rr->_class, "resource class ");
-    put32bits(buffer, rr->ttl, "resource ttl");
-    put16bits(buffer, rr->rDataLen, "resource lenght");
+    put16bits(buffer, rr->type);
+    put16bits(buffer, rr->_class);
+    put32bits(buffer, rr->ttl);
+    put16bits(buffer, rr->rDataLen);
     memcpy(*buffer, rr->rData, strlen(rr->rData));
+    length += rr->rDataLen;
     *buffer += rr->rDataLen;
   }
 }
 
 //endcode packet
 void encode_packet(struct packet* packet, char** buffer) {
-  printf("Header:\n");
   encode_header(packet->header, buffer);
-  printf("Query Section:\n");
   encode_domain_name(buffer, packet->querySection->qName);
-  put16bits(buffer, packet->querySection->qType, "query type");
-  put16bits(buffer, packet->querySection->qClass, "query class");
-  printf("Answer Section:\n");
+  put16bits(buffer, packet->querySection->qType);
+  put16bits(buffer, packet->querySection->qClass);
   encode_resource_records(packet->answerSection, buffer);
-  printf("Autority Section:\n");
   encode_resource_records(packet->authoritySection, buffer);
-  printf("Addtional Section:\n");
   encode_resource_records(packet->additionalSection, buffer);
-  printf("End\n");
 }
 
 void decode_header(struct dnsHeader* hd, char** buffer) {
@@ -280,9 +311,20 @@ char* decode_domain_name(char** buffer) {
     *pareseDomain = '.';
     pareseDomain += 1;
   }
+  *buffer += 1;
   pareseDomain -= 1;
   *pareseDomain = '\0';
   return temp;
+}
+
+void decode_resource_records(struct dnsRR* rr, char** buffer) {
+  rr->dname = decode_domain_name(buffer);
+  rr->type = get16bits(buffer);
+  rr->_class = get16bits(buffer);
+  rr->ttl = get32bits(buffer);
+  rr->rDataLen = get16bits(buffer);
+  memcpy(rr->rData, *buffer, rr->rDataLen);
+  *buffer += rr->rDataLen;
 }
 
 void decode_packet(struct packet* packet, char** buffer) {
@@ -290,24 +332,74 @@ void decode_packet(struct packet* packet, char** buffer) {
   packet->querySection->qName = decode_domain_name(buffer);
   packet->querySection->qType = get16bits(buffer);
   packet->querySection->qClass = get16bits(buffer);
+  if (packet->header->answerNum != 0) {
+    decode_resource_records(packet->answerSection, buffer);
+  }
+  if (packet->header->authorNum != 0) {
+    decode_resource_records(packet->authoritySection, buffer);
+  }
+  if (packet->header->addNum != 0) {
+    decode_resource_records(packet->additionalSection, buffer);
+  }
 }
 
 //get the query type
-int getType(char *type) {
+unsigned short getType(char *type) {
   enum RR_type type_code;
-  if (strcmp(type, "A") == 0) {
+  if (!strcmp(type, "A")) {
     type_code = A;
     return type_code;
   } 
-  else if (strcmp(type, "MX"))
+  else if (!strcmp(type, "MX"))
   {
     type_code = MX;
     return type_code;
-  } else if (strcmp(type, "CNAME")) {
+  } else if (!strcmp(type, "CNAME")) {
     type_code = CNAME;
     return type_code;
   } else {
     printf("No such query type, [A | MX | CNAME] is considered\n");
     exit(0);
   }
+}
+void printPacket(struct packet packet) {
+  printf("Header:\n");
+  printf("id: %d\n", packet.header->id);
+  printf("tag: %d\n", packet.header->tag);
+  printf("query number: %d\n", packet.header->queryNum);
+  printf("answer number: %d\n", packet.header->answerNum);
+  printf("authority number: %d\n", packet.header->authorNum);
+  printf("additional number: %d\n", packet.header->addNum);
+  printf("Query Section:\n");
+  printf("query name : %s\n", packet.querySection->qName);
+  printf("query type : %d\n", packet.querySection->qType);
+  printf("query class : %d\n", packet.querySection->qClass);
+  printf("Answer Section:\n");
+  if (packet.header->answerNum != 0) {
+    printf("name: %s\n", packet.answerSection->dname);
+    printf("type: %d\n", packet.answerSection->type);
+    printf("class: %d\n", packet.answerSection->_class);
+    printf("time to left: %d\n", packet.answerSection->ttl);
+    printf("data length: %d\n", packet.answerSection->rDataLen);
+    printf("data: %s\n", packet.answerSection->rData);
+  }
+  printf("Autority Section:\n");
+  if (packet.header->authorNum != 0) {
+    printf("name: %s\n", packet.authoritySection->dname);
+    printf("type: %d\n", packet.authoritySection->type);
+    printf("class: %d\n", packet.authoritySection->_class);
+    printf("time to left: %d\n", packet.authoritySection->ttl);
+    printf("data length: %d\n", packet.authoritySection->rDataLen);
+    printf("data: %s\n", packet.answerSection->rData);
+  }
+  printf("Addtional Section:\n");
+  if (packet.header->addNum != 0) {
+    printf("name: %s\n", packet.additionalSection->dname);
+    printf("type: %d\n", packet.additionalSection->type);
+    printf("class: %d\n", packet.additionalSection->_class);
+    printf("time to left: %d\n", packet.additionalSection->ttl);
+    printf("data length: %d\n", packet.additionalSection->rDataLen);
+    printf("data: %s\n", packet.additionalSection->rData);
+  }
+  printf("End\n");
 }

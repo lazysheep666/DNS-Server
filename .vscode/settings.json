@@ -25,6 +25,8 @@
     "iterator": "c",
     "locale": "c",
     "system_error": "c",
-    "initializer_list": "c"
+    "initializer_list": "c",
+    "typeinfo": "c",
+    "istream": "c"
   }
 }
