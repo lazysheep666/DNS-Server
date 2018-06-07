@@ -144,10 +144,11 @@ int main(int argc, char *argv[])
   buf = send_buf;
   send_buf += 2;
   encode_packet(&qPacket, &send_buf);
-  printf("packet lenghth: %d\n", length);
+  printf("packet length: %d\n", length);
   length = htons(length);
   memcpy(buf, &length, sizeof(length));
-  if (send(sockfd, buf, BUF_SIZE, 0) == -1) {
+  length = ntohs(length);
+  if (send(sockfd, buf, length + 2, 0) == -1) {
     printf("Something wrong with socket sending packet\n");
     exit(1); 
   }
@@ -155,7 +156,8 @@ int main(int argc, char *argv[])
   //receive anser packet
   int nbytes;
   rec_buf = (char *)malloc(sizeof(char) * BUF_SIZE);
-  if ((nbytes = recv(sockfd, rec_buf, BUF_SIZE, 0)) == -1) {
+  memset(rec_buf, '\0', BUF_SIZE);
+  if ((nbytes = recv(sockfd, rec_buf, 200, 0)) == -1) {
       printf("Something wrong with socket receving\n");
     }
     struct packet aPacket;
@@ -166,6 +168,8 @@ int main(int argc, char *argv[])
 
     aPacket.answerSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
     memset(aPacket.answerSection, 0, sizeof(struct dnsRR));
+    aPacket.answerSection->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket.answerSection->dname, 0, BUF_SIZE);
     aPacket.answerSection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
     memset(aPacket.answerSection->rData, 0, BUF_SIZE);
 
@@ -174,7 +178,10 @@ int main(int argc, char *argv[])
 
     aPacket.additionalSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
     memset(aPacket.additionalSection, 0, sizeof(struct dnsRR));
-
+    unsigned short rec_length;
+    memcpy(&rec_length, rec_buf, sizeof(rec_length));
+    rec_length = ntohs(rec_length);
+    printf("length: %d\n", rec_length);
     rec_buf += 2;
     // unsigned int h = get32bits(&rec_buf);
     // printf("%d", h);
@@ -250,7 +257,7 @@ void encode_domain_name(char** buffer, char* domain) {
   do {
     j++;
     if (domain[j] == '.' || domain[j] == '\0') {
-      itoa(j, *buffer, 10);
+      **buffer = j;
       *buffer += 1;
       length += 1;
       memcpy(*buffer, domain, j);
@@ -260,14 +267,19 @@ void encode_domain_name(char** buffer, char* domain) {
       j = -1;
     }
   } while (domain[j] != '\0');
-  itoa(0, *buffer, 10);
+  **buffer = 0;
   *buffer += 1;
   length += 1;
 }
 /* @return 0 upon failure, 1 upon success */
 void encode_resource_records(struct dnsRR* rr, char** buffer) {
   if (rr) {
-    encode_domain_name(buffer, rr->dname);
+    unsigned short h = 192;
+    **buffer = h;
+    *buffer += 1;
+    **buffer = 12;
+    *buffer += 1;
+    length += 2;
     put16bits(buffer, rr->type);
     put16bits(buffer, rr->_class);
     put32bits(buffer, rr->ttl);
@@ -302,8 +314,8 @@ char* decode_domain_name(char** buffer) {
   char* pareseDomain = (char *)malloc((sizeof(char) * 1024));
   char* temp = pareseDomain;
   memset(pareseDomain, 0, 1024);
-  while(**buffer != '0') {
-    int len = (int)**buffer - 48;
+  while(**buffer != 0) {
+    int len = (int)**buffer;
     *buffer += 1;
     memcpy(pareseDomain, *buffer, len);
     *buffer += len;
@@ -318,7 +330,8 @@ char* decode_domain_name(char** buffer) {
 }
 
 void decode_resource_records(struct dnsRR* rr, char** buffer) {
-  rr->dname = decode_domain_name(buffer);
+  memcpy(rr->dname, *buffer, 2);
+  *buffer += 2;
   rr->type = get16bits(buffer);
   rr->_class = get16bits(buffer);
   rr->ttl = get32bits(buffer);
@@ -376,12 +389,22 @@ void printPacket(struct packet packet) {
   printf("query class : %d\n", packet.querySection->qClass);
   printf("Answer Section:\n");
   if (packet.header->answerNum != 0) {
-    printf("name: %s\n", packet.answerSection->dname);
+    printf("name: %s\n", packet.querySection->qName);
     printf("type: %d\n", packet.answerSection->type);
     printf("class: %d\n", packet.answerSection->_class);
     printf("time to left: %d\n", packet.answerSection->ttl);
     printf("data length: %d\n", packet.answerSection->rDataLen);
-    printf("data: %s\n", packet.answerSection->rData);
+    printf("data: %d", *packet.answerSection->rData);
+    packet.answerSection->rData++;
+    printf(".");
+    printf("%d", *packet.answerSection->rData);
+    packet.answerSection->rData++;
+    printf(".");
+    printf("%d", *packet.answerSection->rData);
+    packet.answerSection->rData++;
+    printf(".");
+    printf("%d", *packet.answerSection->rData);
+    printf("\n");
   }
   printf("Autority Section:\n");
   if (packet.header->authorNum != 0) {
