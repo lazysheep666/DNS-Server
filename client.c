@@ -178,6 +178,11 @@ int main(int argc, char *argv[])
 
     aPacket.additionalSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
     memset(aPacket.additionalSection, 0, sizeof(struct dnsRR));
+    aPacket.additionalSection->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket.additionalSection->dname, 0, BUF_SIZE);
+    aPacket.additionalSection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket.additionalSection->rData, 0, BUF_SIZE);
+    
     unsigned short rec_length;
     memcpy(&rec_length, rec_buf, sizeof(rec_length));
     rec_length = ntohs(rec_length);
@@ -394,17 +399,21 @@ void printPacket(struct packet packet) {
     printf("class: %d\n", packet.answerSection->_class);
     printf("time to left: %d\n", packet.answerSection->ttl);
     printf("data length: %d\n", packet.answerSection->rDataLen);
-    printf("data: %d", *packet.answerSection->rData);
-    packet.answerSection->rData++;
-    printf(".");
-    printf("%d", *packet.answerSection->rData);
-    packet.answerSection->rData++;
-    printf(".");
-    printf("%d", *packet.answerSection->rData);
-    packet.answerSection->rData++;
-    printf(".");
-    printf("%d", *packet.answerSection->rData);
-    printf("\n");
+    if (packet.querySection->qType == 1) {
+      printf("data: %d", *packet.answerSection->rData);
+      packet.answerSection->rData++;
+      printf(".");
+      printf("%d", *packet.answerSection->rData);
+      packet.answerSection->rData++;
+      printf(".");
+      printf("%d", *packet.answerSection->rData);
+      packet.answerSection->rData++;
+      printf(".");
+      printf("%d", *packet.answerSection->rData);
+      printf("\n");
+    } else if (packet.querySection->qType == 5) {
+      printf("data: %s\n", decode_domain_name(&packet.answerSection->rData));
+    }
   }
   printf("Autority Section:\n");
   if (packet.header->authorNum != 0) {
@@ -422,7 +431,17 @@ void printPacket(struct packet packet) {
     printf("class: %d\n", packet.additionalSection->_class);
     printf("time to left: %d\n", packet.additionalSection->ttl);
     printf("data length: %d\n", packet.additionalSection->rDataLen);
-    printf("data: %s\n", packet.additionalSection->rData);
+    printf("data: %d", *packet.additionalSection->rData);
+    packet.additionalSection->rData++;
+    printf(".");
+    printf("%d", *packet.additionalSection->rData);
+    packet.additionalSection->rData++;
+    printf(".");
+    printf("%d", *packet.additionalSection->rData);
+    packet.additionalSection->rData++;
+    printf(".");
+    printf("%d", *packet.additionalSection->rData);
+    printf("\n");
   }
   printf("End\n");
 }

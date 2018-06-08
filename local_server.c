@@ -82,7 +82,9 @@ void put32bits(char** buffer, unsigned int value);
 unsigned int get32bits(char** buffer);
 void encode_header(struct dnsHeader* hd, char** buffer);
 void encode_domain_name(char** buff, char* domain);
-void parse_rData(struct dnsRR* rr, char* buffer);
+void parse_A_rData(struct dnsRR* rr, char* buffer, unsigned short prfrc);
+void parse_MX_rData(struct dnsRR* rr, char* buffer, unsigned short prfrc);
+void parse_CNAME_rData(struct dnsRR* rr, char* buffer, unsigned short prfrc);
 void encode_resource_records(struct dnsRR* rr, char** buffer);
 void encode_packet(struct packet* packet, char** buffer);
 void decode_header(struct dnsHeader* hd, char** buffer);
@@ -143,7 +145,33 @@ int main(int argc, char *argv[]) {
     struct dnsRR* head = (struct dnsRR*)malloc(sizeof(struct dnsRR));
     //get the resource record from cache
     getRR(head, "./cache");
-    struct dnsRR* rr = findRR(qPacket.querySection->qName, qPacket.querySection->qType, head);
+    //answer rr
+    struct dnsRR* rr;
+    //addtional rr
+    struct dnsRR* add_rr;
+    if (qPacket.querySection->qType == 1 || qPacket.querySection->qType == 5) {
+      rr = findRR(qPacket.querySection->qName, qPacket.querySection->qType, head);
+    } else {
+      rr = findRR(qPacket.querySection->qName, qPacket.querySection->qType, head);
+      //addtional rr
+      if (rr != NULL) {
+        char* temp_rr_rData = rr->rData;
+        temp_rr_rData += 2;
+        char* temp_mx_query_name = (char*)malloc(sizeof(char) * BUF_SIZE);
+        memset(temp_mx_query_name, 0, BUF_SIZE);
+        char* mx_query_name = temp_mx_query_name;
+        printf("%d\n", *temp_rr_rData);
+        unsigned short length = *temp_rr_rData;
+        temp_rr_rData++;
+        memcpy(temp_mx_query_name, temp_rr_rData, length);
+        temp_mx_query_name += length;
+        *temp_mx_query_name = '.';
+        temp_mx_query_name++;
+        memcpy(temp_mx_query_name, rr->dname, strlen(rr->dname));
+        printf("%s\n", mx_query_name);
+        add_rr = findRR(mx_query_name, 1, head);
+      }
+    }
     //header
     if (rr != NULL) {
       struct packet aPacket;
@@ -166,7 +194,9 @@ int main(int argc, char *argv[]) {
       if (qPacket.querySection->qType == 1 || qPacket.querySection->qType == 5) {
         aPacket.additionalSection = NULL;
       } else {
-        printf("MX\n");
+        //if the query type is MX, there is additional section
+        aPacket.additionalSection = add_rr;
+        aPacket.header->addNum = 1;
       }
       //send answer packet
       char* temp_buf = (char*) malloc(sizeof(char) * BUF_SIZE);
@@ -288,30 +318,68 @@ void encode_resource_records(struct dnsRR* rr, char** buffer) {
   }
 }
 
-void parse_rData(struct dnsRR* rr, char* buffer) {
+void parse_A_rData(struct dnsRR* rr, char* buffer, unsigned short prfrc) {
   char* r = rr->rData;
-  if (rr->type == 1) {
-    int j = -1;
-    unsigned short temp;
-    char *q = (char*)malloc(sizeof(char)*1000);
-    memset(q, 0, 1000);
-    do {
-      j++;
-      if (buffer[j] == '.' || buffer[j] == '\0') {
-        memcpy(q, buffer, j);
-        temp = atoi(q);
-        *rr->rData = temp;
-        rr->rData += 1;
-        memset(q, 0, 1000);
-        buffer= buffer + j + 1;
-        j = -1;
-      }
-    } while (buffer[j] != '\0');
-    rr->rData = r;
-  }
-  
+  int j = -1;
+  unsigned short temp;
+  char *q = (char*)malloc(sizeof(char)*1000);
+  memset(q, 0, 1000);
+  do {
+    j++;
+    if (buffer[j] == '.' || buffer[j] == '\0') {
+      memcpy(q, buffer, j);
+      temp = atoi(q);
+      *rr->rData = temp;
+      rr->rData += 1;
+      memset(q, 0, 1000);
+      buffer= buffer + j + 1;
+      j = -1;
+    }
+  } while (buffer[j] != '\0');
+  rr->rData = r;
+  rr->rDataLen = 4;
 }
-
+void parse_MX_rData(struct dnsRR* rr, char* buffer, unsigned short prfrc) {
+  char* r = rr->rData;
+  put16bits(&rr->rData, prfrc);
+  int i = 0;
+  while (buffer[i] != '.') {
+    i++;
+  }
+  *rr->rData = i;
+  rr->rData ++;
+  memcpy(rr->rData, buffer, i);
+  rr->rData += i;
+  unsigned short x = 192;
+  *rr->rData = x;
+  rr->rData ++;
+  *rr->rData = 12;
+  rr->rData = r;
+  rr->rDataLen = 4 + i + 1;
+}
+void parse_CNAME_rData(struct dnsRR* rr, char* buffer, unsigned short prfrc) {
+  int length = 0;
+  int j = -1;
+  char* r = rr->rData;
+  do {
+    j++;
+    if (buffer[j] == '.' || buffer[j] == '\0') {
+      *r = j;
+      r += 1;
+      length += 1;
+      memcpy(r, buffer, j);
+      r += j;
+      length += j;
+      buffer = buffer + j + 1;
+      j = -1;
+    }
+  } while (buffer[j] != '\0');
+  *r = 0;
+  r += 1;
+  length += 1;
+  rr->rDataLen = length;
+  printf("%d\n", *rr->rData);
+}
 //endcode packet
 void encode_packet(struct packet* packet, char** buffer) {
   encode_header(packet->header, buffer);
@@ -408,7 +476,9 @@ void getRR (struct dnsRR *head, char* fpath) {
     exit(0);
   }
   while (fgets(buf, BUFSIZ, fp) != NULL) {
+    //get a  resource record
     int len = strlen(buf);
+    //replace /n to \0
     buf[len-1] = '\0';
     len = strlen(buf);
     struct dnsRR *q = (struct dnsRR*)malloc(sizeof(struct dnsRR));
@@ -416,6 +486,7 @@ void getRR (struct dnsRR *head, char* fpath) {
     q->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
     memset(q->dname, 0, BUF_SIZE);
     memset(q->rData, 0, BUF_SIZE);
+    //get the domain name
     for (int i = 0; i < len; i++) {
       if (buf[i] == ' ') {
         memcpy(q->dname, buf, i);
@@ -423,8 +494,11 @@ void getRR (struct dnsRR *head, char* fpath) {
         break;
       }
     }
+    //move the buf
     len = strlen(buf);
-    char temp_type[BUF_SIZE];
+    char* temp_type = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(temp_type, 0, BUF_SIZE);
+    //get the type
     for (int i = 0; i < len; i++) {
       if (buf[i] == ' ') {
         q->type = getType(temp_type);
@@ -433,20 +507,29 @@ void getRR (struct dnsRR *head, char* fpath) {
       }
       temp_type[i] = buf[i];
     }
+    //move the buf
     len = strlen(buf);
-    memcpy(q->rData, buf, len);
+    //get the preference
+    unsigned short prfrc;
+    char* tempPrfrc = (char*)malloc(sizeof(char) * BUF_SIZE);
+    memset(tempPrfrc, 0, BUF_SIZE);
+    for (int i = 0; i < len; i++) {
+      if (buf[i] == ' ') {
+        prfrc = atoi(tempPrfrc);
+        buf += i + 1;
+        break;
+      }
+      tempPrfrc[i] = buf[i];
+    }
+    // memcpy(q->rData, buf, len);
     if (q->type == 1) {
-      q->rDataLen = 4;
-      printf("%s\n", buf);
-      parse_rData(q, buf);
-      unsigned short n;
-      memcpy(&n, q->rData, 1);
-      printf("%d\n", n);
-    } else if (q->type == 15) {
-      q->rDataLen = 8;
+      parse_A_rData(q, buf, prfrc);
+    } else if (q->type == 5) {
+      parse_CNAME_rData(q, buf, prfrc);
+    } else {
+      parse_MX_rData(q, buf, prfrc);
     }
     q->_class = 0x1;
-    
     q->ttl = 100;
     q->next = NULL;
     p->next = q;
@@ -510,17 +593,21 @@ void printPacket(struct packet packet) {
     printf("class: %d\n", packet.answerSection->_class);
     printf("time to left: %d\n", packet.answerSection->ttl);
     printf("data length: %d\n", packet.answerSection->rDataLen);
-    printf("data: %d", *packet.answerSection->rData);
-    packet.answerSection->rData++;
-    printf(".");
-    printf("%d", *packet.answerSection->rData);
-    packet.answerSection->rData++;
-    printf(".");
-    printf("%d", *packet.answerSection->rData);
-    packet.answerSection->rData++;
-    printf(".");
-    printf("%d", *packet.answerSection->rData);
-    printf("\n");
+    if (packet.querySection->qType == 1) {
+      printf("data: %d", *packet.answerSection->rData);
+      packet.answerSection->rData++;
+      printf(".");
+      printf("%d", *packet.answerSection->rData);
+      packet.answerSection->rData++;
+      printf(".");
+      printf("%d", *packet.answerSection->rData);
+      packet.answerSection->rData++;
+      printf(".");
+      printf("%d", *packet.answerSection->rData);
+      printf("\n");
+    } else if (packet.querySection->qType == 5) {
+      printf("data: %s\n", decode_domain_name(&packet.answerSection->rData));
+    }
   }
   printf("Autority Section:\n");
   if (packet.header->authorNum != 0) {
@@ -538,7 +625,17 @@ void printPacket(struct packet packet) {
     printf("class: %d\n", packet.additionalSection->_class);
     printf("time to left: %d\n", packet.additionalSection->ttl);
     printf("data length: %d\n", packet.additionalSection->rDataLen);
-    printf("data: %s\n", packet.additionalSection->rData);
+    printf("data: %d", *packet.additionalSection->rData);
+    packet.additionalSection->rData++;
+    printf(".");
+    printf("%d", *packet.additionalSection->rData);
+    packet.additionalSection->rData++;
+    printf(".");
+    printf("%d", *packet.additionalSection->rData);
+    packet.additionalSection->rData++;
+    printf(".");
+    printf("%d", *packet.additionalSection->rData);
+    printf("\n");
   }
   printf("End\n");
 }
