@@ -27,6 +27,7 @@
     "system_error": "c",
     "initializer_list": "c",
     "typeinfo": "c",
-    "istream": "c"
+    "istream": "c",
+    "time.h": "c"
   }
 }

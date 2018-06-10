@@ -6,7 +6,7 @@
 #include <stdlib.h> /* for atoi() and exit() */
 #include <string.h> /* for memset() */
 #include <unistd.h> /* for close() */
-#define SERVER_PORT 3000
+#define SERVER_PORT 53
 #define BUF_SIZE 1024 
 
 unsigned short length = 0;
@@ -74,6 +74,8 @@ struct packet {
 void strreverse(char* begin, char* end);
 void itoa(int value, char* str, int base);
 void printPacket(struct packet packet);
+void initializeQueryPacket(struct packet* qPacket);
+void initializeAnswerPacket(struct packet* qPacket);
 unsigned short getType(char *type);
 void put16bits(char** buffer, unsigned short value);
 unsigned short get16bits(char** buffer);
@@ -99,29 +101,22 @@ int main(int argc, char *argv[])
   char* send_buf;
   char* rec_buf;
   char* buf;
-  char* serverIP = "127.0.0.1";
+  char* serverIP = "127.0.0.2";
   if (argc < 2 || argc > 3) { 
     printf("Usage: ./client domain_name type\n"); 
     exit(1); 
   }
   // construct query packet
-  qPacket.header = (struct dnsHeader*)malloc(sizeof(struct dnsHeader));
-  memset(qPacket.header, 0, sizeof(struct dnsHeader));
-  qPacket.querySection = (struct dnsQuery*)malloc(sizeof(struct dnsQuery));
-  memset(qPacket.querySection, 0, sizeof(struct dnsQuery));
+  initializeQueryPacket(&qPacket);
   unsigned short id = 0x1;
   qPacket.header->id = id;
-  tag = standard_query_NRD;
-  qPacket.header->tag = tag;
+  qPacket.header->tag = standard_query_NRD;
   qPacket.header->queryNum = 0x0001;
   qPacket.header->authorNum = 0x0000;
   qPacket.header->addNum = 0x0000;
   qPacket.querySection->qName = argv[1];
   qPacket.querySection->qType = getType(argv[2]);
   qPacket.querySection->qClass = 0x0001;
-  qPacket.answerSection = NULL;
-  qPacket.authoritySection = NULL;
-  qPacket.additionalSection = NULL;
 
   if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){ 
     printf("Something wrong with socket creation\n"); 
@@ -161,35 +156,13 @@ int main(int argc, char *argv[])
       printf("Something wrong with socket receving\n");
     }
     struct packet aPacket;
-    aPacket.header = (struct dnsHeader*)malloc(sizeof(struct dnsHeader));
-    memset(aPacket.header, 0, sizeof(struct dnsHeader));
-    aPacket.querySection = (struct dnsQuery*)malloc(sizeof(struct dnsQuery));
-    memset(aPacket.querySection, 0, sizeof(struct dnsQuery));
-
-    aPacket.answerSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
-    memset(aPacket.answerSection, 0, sizeof(struct dnsRR));
-    aPacket.answerSection->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
-    memset(aPacket.answerSection->dname, 0, BUF_SIZE);
-    aPacket.answerSection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
-    memset(aPacket.answerSection->rData, 0, BUF_SIZE);
-
-    aPacket.authoritySection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
-    memset(aPacket.authoritySection, 0, sizeof(struct dnsRR));
-
-    aPacket.additionalSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
-    memset(aPacket.additionalSection, 0, sizeof(struct dnsRR));
-    aPacket.additionalSection->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
-    memset(aPacket.additionalSection->dname, 0, BUF_SIZE);
-    aPacket.additionalSection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
-    memset(aPacket.additionalSection->rData, 0, BUF_SIZE);
+    initializeAnswerPacket(&aPacket);
     
     unsigned short rec_length;
     memcpy(&rec_length, rec_buf, sizeof(rec_length));
     rec_length = ntohs(rec_length);
-    printf("length: %d\n", rec_length);
+    printf("packet length: %d\n", rec_length);
     rec_buf += 2;
-    // unsigned int h = get32bits(&rec_buf);
-    // printf("%d", h);
     decode_packet(&aPacket, &rec_buf);
     printPacket(aPacket);
   return 0;
@@ -352,12 +325,18 @@ void decode_packet(struct packet* packet, char** buffer) {
   packet->querySection->qClass = get16bits(buffer);
   if (packet->header->answerNum != 0) {
     decode_resource_records(packet->answerSection, buffer);
+  } else {
+    packet->answerSection = NULL;
   }
   if (packet->header->authorNum != 0) {
     decode_resource_records(packet->authoritySection, buffer);
+  } else {
+    packet->authoritySection = NULL;
   }
   if (packet->header->addNum != 0) {
     decode_resource_records(packet->additionalSection, buffer);
+  } else {
+    packet->additionalSection = NULL;
   }
 }
 
@@ -379,6 +358,47 @@ unsigned short getType(char *type) {
     printf("No such query type, [A | MX | CNAME] is considered\n");
     exit(0);
   }
+}
+void initializeQueryPacket(struct packet* qPacket) {
+    qPacket->header = (struct dnsHeader*)malloc(sizeof(struct dnsHeader));
+    memset(qPacket->header, 0, sizeof(struct dnsHeader));
+    qPacket->querySection = (struct dnsQuery*)malloc(sizeof(struct dnsQuery));
+    memset(qPacket->querySection, 0, sizeof(struct dnsQuery));
+    qPacket->querySection->qName = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(qPacket->querySection->qName, 0, BUF_SIZE);
+    qPacket->answerSection = NULL;
+    qPacket->authoritySection = NULL;
+    qPacket->additionalSection = NULL;
+}
+//initialize answer packet
+void initializeAnswerPacket(struct packet* aPacket) {
+    aPacket->header = (struct dnsHeader*)malloc(sizeof(struct dnsHeader));
+    memset(aPacket->header, 0, sizeof(struct dnsHeader));
+    aPacket->querySection = (struct dnsQuery*)malloc(sizeof(struct dnsQuery));
+    memset(aPacket->querySection, 0, sizeof(struct dnsQuery));
+    aPacket->querySection->qName = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket->querySection->qName, 0, BUF_SIZE);
+
+    aPacket->answerSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    memset(aPacket->answerSection, 0, sizeof(struct dnsRR));
+    aPacket->answerSection->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket->answerSection->dname, 0, BUF_SIZE);
+    aPacket->answerSection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket->answerSection->rData, 0, BUF_SIZE);
+
+    aPacket->authoritySection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    memset(aPacket->authoritySection, 0, sizeof(struct dnsRR));
+    aPacket->authoritySection->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket->authoritySection->dname, 0, BUF_SIZE);
+    aPacket->authoritySection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket->authoritySection->rData, 0, BUF_SIZE);
+
+    aPacket->additionalSection = (struct dnsRR*)malloc(sizeof(struct dnsRR));
+    memset(aPacket->additionalSection, 0, sizeof(struct dnsRR));
+    aPacket->additionalSection->dname = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket->additionalSection->dname, 0, BUF_SIZE);
+    aPacket->additionalSection->rData = (char *)malloc(sizeof(char) * BUF_SIZE);
+    memset(aPacket->additionalSection->rData, 0, BUF_SIZE);
 }
 void printPacket(struct packet packet) {
   printf("Header:\n");
@@ -413,6 +433,8 @@ void printPacket(struct packet packet) {
       printf("\n");
     } else if (packet.querySection->qType == 5) {
       printf("data: %s\n", decode_domain_name(&packet.answerSection->rData));
+    } else {
+      printf("data: %s\n", decode_domain_name(&packet.answerSection->rData));
     }
   }
   printf("Autority Section:\n");
@@ -444,4 +466,8 @@ void printPacket(struct packet packet) {
     printf("\n");
   }
   printf("End\n");
+  printf("---------------------------------\n");
+  printf("---------------------------------\n");
+  printf("---------------------------------\n");
+
 }
