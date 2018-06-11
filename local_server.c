@@ -107,9 +107,6 @@ int main(int argc, char *argv[]) {
   int sockfd,client_fd; /*sock_fd：监听socket；client_fd：数据传输socket */
   struct sockaddr_in my_addr; /* 本机地址信息 */ 
   struct sockaddr_in remote_addr; /* 客户端地址信息 */ 
-  char* buf;
-  buf = (char*)malloc(sizeof(char) * BUF_SIZE);
-  buf = memset(buf, 0, BUF_SIZE);
   if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) { 
     printf("Something wrong with socket creation\n"); 
     exit(1); 
@@ -131,15 +128,24 @@ int main(int argc, char *argv[]) {
       printf("Something wrong with socket accepting\n");  
       continue; 
     }
+
+    char* buf;
+    buf = (char*)malloc(sizeof(char) * BUF_SIZE);
+    buf = memset(buf, 0, BUF_SIZE);
     int nbytes;
-    printf("received a connection from %s\n", inet_ntoa(remote_addr.sin_addr));
+
+    printf("received a query from %s\n", inet_ntoa(remote_addr.sin_addr));
     if ((nbytes = recv(client_fd, buf, BUF_SIZE, 0)) == -1) {
       printf("Something wrong with socket receving\n");
     }
+
     struct packet qPacket;
     initializeQueryPacket(&qPacket);
+
     buf += 2;
     decode_packet(&qPacket, &buf);
+    printf("query domain name: %s\n", qPacket.querySection->qName);
+    printf("query type: %d\n", qPacket.querySection->qType);
     struct dnsRR* head = (struct dnsRR*)malloc(sizeof(struct dnsRR));
     memset(head, 0, sizeof(struct dnsRR));
     //get the resource record from cache
@@ -199,8 +205,10 @@ int main(int argc, char *argv[]) {
       char* send_buf = temp_buf;
       temp_buf += 2;
       encode_packet(&aPacket, &temp_buf);
-      printf("packet length: %d\n", length);
-      printPacket(aPacket);
+      printf("send packet to %s\n", inet_ntoa(remote_addr.sin_addr));
+      printf("-------------------\n");
+      printf("-------------------\n");
+      printf("-------------------\n");
       length = htons(length);
       memcpy(send_buf, &length, sizeof(length));
       length = ntohs(length);
@@ -234,7 +242,7 @@ int main(int argc, char *argv[]) {
       localQueryPacket.querySection = qPacket.querySection;
       char* udp_send_buf = temp_udp_send_buf;
       encode_packet(&localQueryPacket, &temp_udp_send_buf);
-      printf("send packet to %s\n", udp_server_ip);
+      printf("send packet to root: %s\n", udp_server_ip);
       if ((sendto(sock, 
                 udp_send_buf,
                 length,
@@ -245,9 +253,11 @@ int main(int argc, char *argv[]) {
         printf("Something wrong with socket sending packet\n");
         exit(1); 
       }
+
       //answer from server
       char *udp_rec_buf = (char*)malloc(sizeof(char) * BUF_SIZE);
       memset(udp_rec_buf, 0, BUF_SIZE);
+      char* h_udp_rec_buf = udp_rec_buf;
 
       unsigned int remAddrLen = sizeof(udp_server_add);
       if ((recvfrom(sock, udp_rec_buf, BUF_SIZE,0,(struct sockaddr *) &udp_server_add, &remAddrLen)) == -1) {
@@ -257,11 +267,20 @@ int main(int argc, char *argv[]) {
       struct packet localAnwserPacket;
       initializeAnswerPacket(&localAnwserPacket);
       decode_packet(&localAnwserPacket, &udp_rec_buf);
-      printPacket(localAnwserPacket);
-      while (localAnwserPacket.header->answerNum == 0) {
+      if(localAnwserPacket.header->tag != name_wrong_res) {
+        printf("receive packet from root: .%d\n", localAnwserPacket.additionalSection->rData[3]);
+      } else {
+        printf("receive packet from root: no such domain name\n");
+      }
+      //reset
+      udp_rec_buf = h_udp_rec_buf;
+      memset(udp_rec_buf, 0, BUF_SIZE);
+      
+      while (localAnwserPacket.header->answerNum == 0 && localAnwserPacket.header->tag != name_wrong_res) {
         //初始化
         udp_server_ip = (char*)malloc(sizeof(char) * BUF_SIZE);
         memset(udp_server_ip, 0, BUF_SIZE);
+        // localAnwserPacket.additionalSection->rData += 3;
         char* ip = "127.0.0.";
         memcpy(udp_server_ip, ip, 8);
         udp_server_ip += 8;
@@ -285,6 +304,14 @@ int main(int argc, char *argv[]) {
           printf("Something wrong with socket receving\n");
         }
         decode_packet(&localAnwserPacket, &udp_rec_buf);
+        if(localAnwserPacket.header->tag != name_wrong_res) {
+          printf("receive packet from %s\n", udp_server_ip);
+        } else {
+          printf("receive packet from %s: no such domain name\n", udp_server_ip);
+        }        
+        //reset
+        udp_rec_buf = h_udp_rec_buf;
+        memset(udp_rec_buf, 0, BUF_SIZE);
       }
       //send answer packet
       char* temp_buf = (char*) malloc(sizeof(char) * BUF_SIZE);
@@ -293,8 +320,12 @@ int main(int argc, char *argv[]) {
       temp_buf += 2;
       encode_packet(&localAnwserPacket, &temp_buf);
       printf("send packet to %s\n", inet_ntoa(remote_addr.sin_addr));
+      printf("-------------------\n");
+      printf("-------------------\n");
+      printf("-------------------\n");
       length = htons(length);
       memcpy(send_buf, &length, sizeof(length));
+      length = ntohs(length);
       if (send(client_fd, send_buf, length + 2, 0) == -1) {
         printf("Something wrong with socket sending packet\n");
         exit(1); 
@@ -302,6 +333,7 @@ int main(int argc, char *argv[]) {
       length = 0;
       query_domain_length = 0;
     }
+    close(client_fd);
   }
   return 0;
 }

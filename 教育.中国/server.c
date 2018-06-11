@@ -106,12 +106,6 @@ int main(int argc, char *argv[]) {
   int sockfd; /*sock_fd：监听socket；client_fd：数据传输socket */
   struct sockaddr_in my_addr; /* 本机地址信息 */ 
   struct sockaddr_in remote_addr; /* 客户端地址信息 */ 
-  char* temp_send_buf = (char*)malloc(sizeof(char) * BUF_SIZE);
-  memset(temp_send_buf, 0, BUF_SIZE);
-  char* send_buf = temp_send_buf;
-  char* rec_buf = (char*)malloc(sizeof(char) * BUF_SIZE);
-  memset(rec_buf, 0, BUF_SIZE);
-
   if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) { 
     printf("Something wrong with socket creation\n"); 
     exit(1); 
@@ -125,6 +119,8 @@ int main(int argc, char *argv[]) {
     exit(1); 
   }
   while(1) {
+    char* rec_buf = (char*)malloc(sizeof(char) * BUF_SIZE);
+    memset(rec_buf, 0, BUF_SIZE);
     unsigned int remAddrLen = sizeof(remote_addr);
     if ((recvfrom(sockfd, rec_buf, BUF_SIZE,0,(struct sockaddr *) &remote_addr, &remAddrLen)) == -1) {
       printf("Something wrong with socket receving\n");
@@ -193,6 +189,10 @@ int main(int argc, char *argv[]) {
       aPacket.authoritySection = NULL;
       aPacket.additionalSection = NULL;
     }
+
+    char* temp_send_buf = (char*)malloc(sizeof(char) * BUF_SIZE);
+    memset(temp_send_buf, 0, BUF_SIZE);
+    char* send_buf = temp_send_buf;
     encode_packet(&aPacket, &temp_send_buf);
     if ((sendto(sockfd, 
                 send_buf,
