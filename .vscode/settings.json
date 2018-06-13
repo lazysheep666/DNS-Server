@@ -28,6 +28,7 @@
     "initializer_list": "c",
     "typeinfo": "c",
     "istream": "c",
-    "time.h": "c"
+    "time.h": "c",
+    "string.h": "c"
   }
 }
