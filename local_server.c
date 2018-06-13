@@ -226,7 +226,7 @@ int main(int argc, char *argv[]) {
       int sock; /* Socket descriptor */
       struct sockaddr_in udp_server_add; /* Echo server address */
       unsigned short rootServPort; /* Echo server port */
-      char *udp_server_ip = "127.0.0.3"; /* IP address of root server */
+      // char *udp_server_ip = "127.0.0.3"; /* IP address of root server */
       char *temp_udp_send_buf = (char*)malloc(sizeof(char) * BUF_SIZE);
       memset(temp_udp_send_buf, 0, BUF_SIZE);
       if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -285,9 +285,9 @@ int main(int argc, char *argv[]) {
         // localAnwserPacket.additionalSection->rData += 3;
         char* ip = "127.0.0.";
         memcpy(udp_server_ip, ip, 8);
-        udp_server_ip += 8;
+        // udp_server_ip += 8;
         *udp_server_ip = *localAnwserPacket.additionalSection->rData + '0';
-        udp_server_ip -= 8;
+        // udp_server_ip -= 8;
         udp_server_add.sin_addr.s_addr = inet_addr(udp_server_ip);
         printf("send packet to %s\n", udp_server_ip);
         if ((sendto(sock, 
