@@ -106,6 +106,7 @@ struct dnsRR* findRR(char* qName, unsigned short qType, struct dnsRR* head);
  */ 
 int main(int argc, char *argv[]) {
   char* serverIP = "127.0.0.2";
+  //tcp
   int sockfd,client_fd; /*sock_fd：监听socket；client_fd：数据传输socket */
   struct sockaddr_in my_addr; /* 本机地址信息 */ 
   struct sockaddr_in remote_addr; /* 客户端地址信息 */ 
@@ -124,6 +125,17 @@ int main(int argc, char *argv[]) {
     printf("Something wrong with socket listening\n"); 
     exit(1); 
   } 
+  //udp
+  int sock; /* Socket descriptor */
+  if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+    printf("Something wrong with socket creation\n"); 
+    exit(1); 
+  }
+  if (bind(sock, (struct sockaddr *)&my_addr, sizeof(struct sockaddr)) == -1) { 
+    printf("Something wrong with socket binding\n");
+    exit(1); 
+  }
+
   while (1) {
     unsigned int sin_size = sizeof(struct sockaddr_in);
     if ((client_fd = (accept(sockfd, (struct sockaddr *)&remote_addr,&sin_size)))== -1) { 
@@ -223,28 +235,26 @@ int main(int argc, char *argv[]) {
     } 
     //query the answer to server
     else {
-      int sock; /* Socket descriptor */
-      struct sockaddr_in udp_server_add; /* Echo server address */
       unsigned short rootServPort; /* Echo server port */
-      // char *udp_server_ip = "127.0.0.3"; /* IP address of root server */
+      char *udp_server_ip = "127.0.0.3"; /* IP address of root server */
       char *temp_udp_send_buf = (char*)malloc(sizeof(char) * BUF_SIZE);
+      struct sockaddr_in udp_server_add; /* Echo server address */
       memset(temp_udp_send_buf, 0, BUF_SIZE);
-      if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-        printf("Something wrong with socket creation\n"); 
-        exit(1); 
-      }
       memset(&udp_server_add, 0, sizeof(udp_server_add));
       udp_server_add.sin_family = AF_INET; /* Internet addr family */
       udp_server_add.sin_addr.s_addr = inet_addr(udp_server_ip);/*Server IP address*/
       udp_server_add.sin_port = htons(UDP_PORT); /* Server port */
-
       struct packet localQueryPacket;
       initializeQueryPacket(&localQueryPacket);
       localQueryPacket.header = qPacket.header;
       localQueryPacket.querySection = qPacket.querySection;
       char* udp_send_buf = temp_udp_send_buf;
       encode_packet(&localQueryPacket, &temp_udp_send_buf);
+      //time duration
+      long start, end;
+      double duration;
       printf("send packet to root: %s\n", udp_server_ip);
+      start = clock();
       if ((sendto(sock, 
                 udp_send_buf,
                 length,
@@ -265,7 +275,7 @@ int main(int argc, char *argv[]) {
       if ((recvfrom(sock, udp_rec_buf, BUF_SIZE,0,(struct sockaddr *) &udp_server_add, &remAddrLen)) == -1) {
         printf("Something wrong with socket receving\n");
       }
-
+      end = clock();
       struct packet localAnwserPacket;
       initializeAnswerPacket(&localAnwserPacket);
       decode_packet(&localAnwserPacket, &udp_rec_buf);
@@ -274,6 +284,8 @@ int main(int argc, char *argv[]) {
       } else {
         printf("receive packet from root: no such domain name\n");
       }
+      duration = (double)(end - start) / 1000;
+      printf("time duration: %f seconds\n", duration);
       //reset
       udp_rec_buf = h_udp_rec_buf;
       memset(udp_rec_buf, 0, BUF_SIZE);
@@ -290,6 +302,7 @@ int main(int argc, char *argv[]) {
         // udp_server_ip -= 8;
         udp_server_add.sin_addr.s_addr = inet_addr(udp_server_ip);
         printf("send packet to %s\n", udp_server_ip);
+        start = clock();
         if ((sendto(sock, 
                 udp_send_buf,
                 length,
@@ -305,12 +318,15 @@ int main(int argc, char *argv[]) {
         if ((recvfrom(sock, udp_rec_buf, BUF_SIZE,0,(struct sockaddr *) &udp_server_add, &remAddrLen)) == -1) {
           printf("Something wrong with socket receving\n");
         }
+        end = clock();
         decode_packet(&localAnwserPacket, &udp_rec_buf);
         if(localAnwserPacket.header->tag != name_wrong_res) {
           printf("receive packet from %s\n", udp_server_ip);
         } else {
           printf("receive packet from %s: no such domain name\n", udp_server_ip);
-        }        
+        }
+        duration = (double)(end - start) / 1000;
+        printf("time duration: %f seconds\n", duration);   
         //reset
         udp_rec_buf = h_udp_rec_buf;
         memset(udp_rec_buf, 0, BUF_SIZE);

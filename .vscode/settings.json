@@ -29,6 +29,7 @@
     "typeinfo": "c",
     "istream": "c",
     "time.h": "c",
-    "string.h": "c"
+    "string.h": "c",
+    "ios": "c"
   }
 }

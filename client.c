@@ -139,7 +139,6 @@ int main(int argc, char *argv[])
   buf = send_buf;
   send_buf += 2;
   encode_packet(&qPacket, &send_buf);
-  printf("packet length: %d\n", length);
   length = htons(length);
   memcpy(buf, &length, sizeof(length));
   length = ntohs(length);
@@ -147,24 +146,25 @@ int main(int argc, char *argv[])
     printf("Something wrong with socket sending packet\n");
     exit(1); 
   }
-  printPacket(qPacket);
-  //receive anser packet
+  //receive answer packet
   int nbytes;
   rec_buf = (char *)malloc(sizeof(char) * BUF_SIZE);
   memset(rec_buf, '\0', BUF_SIZE);
   if ((nbytes = recv(sockfd, rec_buf, 200, 0)) == -1) {
       printf("Something wrong with socket receving\n");
-    }
-    struct packet aPacket;
-    initializeAnswerPacket(&aPacket);
-    
-    unsigned short rec_length;
-    memcpy(&rec_length, rec_buf, sizeof(rec_length));
-    rec_length = ntohs(rec_length);
-    printf("packet length: %d\n", rec_length);
-    rec_buf += 2;
-    decode_packet(&aPacket, &rec_buf);
+  }
+  struct packet aPacket;
+  initializeAnswerPacket(&aPacket); 
+  unsigned short rec_length;
+  memcpy(&rec_length, rec_buf, sizeof(rec_length));
+  rec_length = ntohs(rec_length);
+  rec_buf += 2;
+  decode_packet(&aPacket, &rec_buf);
+  if (aPacket.header->tag == name_wrong_res) {
+    printf("no such domian name\n");
+  } else {
     printPacket(aPacket);
+  }
   return 0;
 }
 
