@@ -297,9 +297,9 @@ int main(int argc, char *argv[]) {
         // localAnwserPacket.additionalSection->rData += 3;
         char* ip = "127.0.0.";
         memcpy(udp_server_ip, ip, 8);
-        // udp_server_ip += 8;
+        udp_server_ip += 8;
         *udp_server_ip = *localAnwserPacket.additionalSection->rData + '0';
-        // udp_server_ip -= 8;
+        udp_server_ip -= 8;
         udp_server_add.sin_addr.s_addr = inet_addr(udp_server_ip);
         printf("send packet to %s\n", udp_server_ip);
         start = clock();
